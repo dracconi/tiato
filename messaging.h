@@ -1,4 +1,6 @@
+#include <stdlib.h>
 #include <pthread.h>
+#include <string.h>
 #include "stats.h"
 #include "error.h"
 
@@ -67,10 +69,10 @@ typedef struct inbox {
   message_t* tail;
 
   // semaphore for waiting on if all messages are exhausted
-  pthread_cond_t* update;
+  pthread_cond_t update;
 
   // mutex for accessing head/tail/count
-  pthread_mutex_t* mutex;
+  pthread_mutex_t mutex;
 } inbox_t;
 
 
@@ -84,16 +86,18 @@ err_t inbox_destroy(inbox_t* inbox);
 // both put and get use mutex to lock the state globally
 
 // place the message in the inbox and send a signal on .update
-// place it on .first
+// place it on .tail
 err_t inbox_put(inbox_t* inbox, message_t* message);
 
 // get the message from the inbox
-// get it from .tail until exhausted and wait on .update
+// get it from .head until exhausted and wait on .update
 err_t inbox_get(inbox_t* inbox, message_t** message);
 
+// helper function for making string type messages
+message_t* message_make_string(pid_t sender, message_type_t type, int len, char* str);
 
 // send the message to pid
-err_t msg_send(pid_t pid, message_t* message);
+err_t message_send(pid_t pid, message_t* message);
 
 
 typedef struct node {
@@ -102,4 +106,4 @@ typedef struct node {
   inbox_t* inbox;
 } node_t;
 
-extern const node_t routing_table[MAX_PID-1];
+err_t node_register(pid_t pid, node_t node);
