@@ -163,8 +163,12 @@ void test_messaging() {
   Assert(inbox_get(&inbox, &ptr) == 0);
   Assert(ptr == msg_long);
 
-  Assert(0 == memcmp(msg_long, message_make_string(0, msg_read, sizeof(str), str),
+  message_t* msg_str = message_make_string(0, msg_read, sizeof(str), str);
+  // bytes are lost here, but that's just for testing, so no worries
+  Assert(0 == memcmp(msg_long, msg_str,
 		     sizeof(message_t) + sizeof(message_body_string_t) + sizeof(str)));
+
+  free(msg_str);
 
   // If you uncomment following lines, the calling thread should block!
   //  assert(inbox_get(&inbox, &ptr) == 0);
@@ -176,6 +180,9 @@ void test_messaging() {
   
   Assert(inbox_destroy(&inbox) == 0);
 
+  free(msg_long);
+  free(message);
+
   printf("\n%d tests ok.\n", c);
 }
 
@@ -183,14 +190,19 @@ void* test_reader_mt(void* arg) {
   printf("messaging.c test_reader_mt():\n");
   inbox_t* inbox = (inbox_t*)arg;
   message_t* message;
+  long sum = 0;
 
   while (inbox_get(inbox, &message) == ERR_OK) {
     if (message->type == msg_kill) {
-      printf("test_reader_mt(): kill\n");
-      return 0;
+      printf("test_reader_mt(): kill, %ld\n", sum);
+      return (void*)sum;
     }
 		
     printf("test_reader_mt(): %s from %d\n", ((message_body_string_t*)message->body)->str, message->sender);
+
+    int num = 0;
+    sscanf(((message_body_string_t*)message->body)->str, "%d", &num);
+    sum += num;
     
     free(message);
   }
@@ -203,7 +215,7 @@ void* test_writer_mt(void* arg) {
 
   char str[16] = {0};
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 500; i++) {
     snprintf(str, 16, "%d", i);
     message_t* msg = message_make_string((int)(long)arg, msg_print, strlen(str)+1, str);
     message_send(1, msg);
@@ -243,5 +255,9 @@ void test_messaging_mt() {
   kill_msg->sender = 0;
   message_send(1, kill_msg);
   pthread_join(thread1, &ret);
+  assert((long)ret == 499*250*3); // sum of all the numbers sent
+
+  inbox_destroy(&inbox1);
+  free(kill_msg);
 }
 #endif
