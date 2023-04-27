@@ -1,6 +1,6 @@
 #include "messaging.h"
 
-static node_t nodes[MAX_PID-1];
+static node_t* nodes[MAX_PID-1];
 
 err_t inbox_init(inbox_t* inbox) {
   inbox->count = 0;
@@ -42,9 +42,8 @@ err_t inbox_put(inbox_t* inbox, message_t* message) {
   inbox->tail = message;
 
   inbox->count++;
-  pthread_mutex_unlock(&inbox->mutex);
-
   pthread_cond_broadcast(&inbox->update);
+  pthread_mutex_unlock(&inbox->mutex);
 
   return ERR_OK;
 }
@@ -67,14 +66,17 @@ static err_t inbox_get_unsafe(inbox_t* inbox, message_t** message) {
 }
 
 err_t inbox_get(inbox_t* inbox, message_t** message) {
-  if (pthread_mutex_lock(&inbox->mutex) != 0)
+  if (pthread_mutex_lock(&inbox->mutex) != 0) {
+    pthread_mutex_unlock(&inbox->mutex);
     return ERR_FATAL;
+  }
   
   if (inbox->count == 0 && pthread_cond_wait(&inbox->update, &inbox->mutex) != 0) {
     if (pthread_mutex_unlock(&inbox->mutex) != 0)
       return ERR_FATAL;
     return ERR_FATAL;
   }
+  
   err_t e = inbox_get_unsafe(inbox, message);
   if (pthread_mutex_unlock(&inbox->mutex) != 0)
     return ERR_FATAL;
@@ -94,15 +96,15 @@ message_t* message_make_string(pid_t sender, message_type_t type, int len, char*
 } 
 
 err_t message_send(pid_t pid, message_t* message) {
-  if (pid > MAX_PID - 1)
+  if (pid > MAX_PID - 1 || nodes[pid] == 0)
     return ERR_FATAL;
 
-  return inbox_put(nodes[pid].inbox, message);
+  return inbox_put(&nodes[pid]->inbox, message);
 }
 
 
 // not thread safe. use only from main thread at the beginning to register nodes
-err_t node_register(pid_t pid, node_t node) {
+err_t node_register(pid_t pid, node_t* node) {
   if (pid > MAX_PID - 1)
     return ERR_FATAL;
   
@@ -120,11 +122,11 @@ void test_messaging() {
   printf("messaging.c test_messaging():\n");
   int c = 0;
 
-  inbox_t inbox;
+  node_t node;
   
-  Assert(inbox_init(&inbox) == 0);
+  Assert(inbox_init(&node.inbox) == 0);
 
-  node_register(1, (node_t){.thread = NULL, .inbox = &inbox});
+  node_register(1, &node);
 
   message_t* message = malloc(sizeof(message_t));
 
@@ -137,11 +139,11 @@ void test_messaging() {
 
   message_t* ptr;
 
-  Assert(inbox_get(&inbox, &ptr) == 0);
+  Assert(inbox_get(&node.inbox, &ptr) == 0);
   Assert(message == ptr);
-  Assert(inbox.count == 0);
+  Assert(node.inbox.count == 0);
 
-  Assert(inbox_put(&inbox, message) == 0);
+  Assert(inbox_put(&node.inbox, message) == 0);
 
   char str[] = "abcde";
   message_t* msg_long = malloc(sizeof(message_t) + sizeof(message_body_string_t) + sizeof(str));
@@ -154,13 +156,13 @@ void test_messaging() {
 
   Assert(strcmp(((message_body_string_t*)msg_long->body)->str, str) == 0);
 
-  Assert(inbox_put(&inbox, msg_long) == 0);
-  Assert(inbox.count == 2);
+  Assert(inbox_put(&node.inbox, msg_long) == 0);
+  Assert(node.inbox.count == 2);
 
-  Assert(inbox_get(&inbox, &ptr) == 0);
+  Assert(inbox_get(&node.inbox, &ptr) == 0);
   Assert(ptr == message);
 
-  Assert(inbox_get(&inbox, &ptr) == 0);
+  Assert(inbox_get(&node.inbox, &ptr) == 0);
   Assert(ptr == msg_long);
 
   message_t* msg_str = message_make_string(0, msg_read, sizeof(str), str);
@@ -174,11 +176,11 @@ void test_messaging() {
   //  assert(inbox_get(&inbox, &ptr) == 0);
   //  assert(ptr == message);
 
-  Assert(inbox_get_unsafe(&inbox, &ptr) == ERR_NOMSG);
+  Assert(inbox_get_unsafe(&node.inbox, &ptr) == ERR_NOMSG);
   
   
   
-  Assert(inbox_destroy(&inbox) == 0);
+  Assert(inbox_destroy(&node.inbox) == 0);
 
   free(msg_long);
   free(message);
@@ -228,18 +230,17 @@ void* test_writer_mt(void* arg) {
 void test_messaging_mt() {
   printf("messaging.c test_messaging_mt():\n");
 
-  inbox_t inbox1;
-  pthread_t thread1;
+  node_t node1;
+
   pthread_t thread2;
   pthread_t thread3;
   pthread_t thread4;
 
-  node_t node = {.thread = &thread1, .inbox = &inbox1};
-  inbox_init(&inbox1);
+  inbox_init(&node1.inbox);
 
-  node_register(1, node);
+  node_register(1, &node1);
 
-  assert(pthread_create(&thread1, NULL, test_reader_mt, &inbox1) == 0);
+  assert(pthread_create(&node1.thread, NULL, test_reader_mt, &node1.inbox) == 0);
   pthread_create(&thread2, NULL, test_writer_mt, (void*)1);
   pthread_create(&thread3, NULL, test_writer_mt, (void*)2);
   pthread_create(&thread4, NULL, test_writer_mt, (void*)3);
@@ -254,10 +255,10 @@ void test_messaging_mt() {
   kill_msg->type = msg_kill;
   kill_msg->sender = 0;
   message_send(1, kill_msg);
-  pthread_join(thread1, &ret);
+  pthread_join(node1.thread, &ret);
   assert((long)ret == 499*250*3); // sum of all the numbers sent
 
-  inbox_destroy(&inbox1);
+  inbox_destroy(&node1.inbox);
   free(kill_msg);
 }
 #endif

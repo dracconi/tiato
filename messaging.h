@@ -101,9 +101,9 @@ err_t message_send(pid_t pid, message_t* message);
 
 
 typedef struct node {
-  pthread_t* thread;
+  pthread_t thread;
 
-  inbox_t* inbox;
+  inbox_t inbox;
 } node_t;
 
-err_t node_register(pid_t pid, node_t node);
+err_t node_register(pid_t pid, node_t* node);
