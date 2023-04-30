@@ -1,8 +1,8 @@
 .PHONY: all test
 
 CC = gcc
-SRC = main.c messaging.c messaging.h error.h
-LIB = -lpthread
+SRC = main.c messaging.c messaging.h error.h stats.c stats.h
+LIB = -lpthread -lrt
 
 all: a.out
 	./a.out

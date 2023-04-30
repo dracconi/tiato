@@ -26,7 +26,7 @@ typedef struct message_body_string {
 
 typedef struct message_body_stats {
   int count;
-  stats_t cpu[];
+  float load[];
 } message_body_stats_t;
 
 typedef enum message_type {
@@ -107,3 +107,4 @@ typedef struct node {
 } node_t;
 
 err_t node_register(pid_t pid, node_t* node);
+err_t node_kill(pid_t pid);

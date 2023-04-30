@@ -1,6 +1,6 @@
 #include "messaging.h"
 
-static node_t* nodes[MAX_PID-1];
+static node_t* nodes[MAX_PID-1] = {0};
 
 err_t inbox_init(inbox_t* inbox) {
   inbox->count = 0;
@@ -33,6 +33,11 @@ err_t inbox_destroy(inbox_t* inbox) {
 
 err_t inbox_put(inbox_t* inbox, message_t* message) {
   pthread_mutex_lock(&inbox->mutex);
+  message->next = 0;
+
+  if (inbox->head != 0 && inbox->head->next == 0)
+    inbox->head->next = message;
+  
   if (inbox->head == 0)
     inbox->head = message;
 
@@ -110,6 +115,13 @@ err_t node_register(pid_t pid, node_t* node) {
   
   nodes[pid] = node;
   return ERR_OK;
+}
+
+err_t node_kill(pid_t pid) {
+  message_t* kill = malloc(sizeof(message_t));
+  kill->type = msg_kill;
+  kill->sender = -1;
+  return message_send(pid, kill);
 }
 
 #ifdef TEST
@@ -260,5 +272,10 @@ void test_messaging_mt() {
 
   inbox_destroy(&node1.inbox);
   free(kill_msg);
+
+  pthread_detach(node1.thread);
+  pthread_detach(thread2);
+  pthread_detach(thread3);
+  pthread_detach(thread4);
 }
 #endif
